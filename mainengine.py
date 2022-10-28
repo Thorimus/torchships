@@ -1,4 +1,3 @@
-from missileGuidance import firedMissile, guidedMissile
 from smallfunctions import smallFunctions
 import pygame, sys, math, os
 pygame.font.init()
