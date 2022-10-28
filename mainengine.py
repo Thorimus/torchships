@@ -12,8 +12,9 @@ pygame.font.init()
 
 
 class vesselType:
-    def __init__(self, typeName, maxThrust, fuelTons, waterTons, missileType = None, magazine = 0, emptyMass = 1, texture = 'ship.png', launchDirection = 0):
-        self.typeName = typeName
+    #Vessel type created from .txt at startup
+    def __init__(self, typeName, maxThrust, fuelTons, waterTons, missileType = None, magazine = 0, emptyMass = 1, texture = 'ship.png', launchDirection = 0, biography = " "):
+        self.typeName = str(typeName) #name of ship class for display
         self.maxThrust = maxThrust #max thrust
         self.waterTons = waterTons
         self.fuelTons = fuelTons
@@ -23,8 +24,12 @@ class vesselType:
         img_path = os.path.join(os.path.dirname(__file__), "img", texture)
         self.texture = pygame.image.load(img_path).convert_alpha() #sprite png
         self.launchDirection = launchDirection #direction of missile launch
+        self.biography = biography
+    def __str__(self) -> str:
+        return self.typeName
 
 class vessel:
+    #Individual vessel created from vesselType object given in shipClass at game start
     def __init__(self, shipClass, name, isPlayer, x, y, velocity = [0, 0], pointing = 0, currentThrust = 0, missileType = None, missilesLoaded = None):
 
         #Dynamic vars
@@ -35,6 +40,7 @@ class vessel:
         self.currentThrust = currentThrust #thrust setting
         self.fixPoint = None
         self.target = None
+        self.guidedMissiles = [] #missiles currently being guided by ownship
 
         #Static vars
         self.isPlayer = isPlayer
@@ -58,8 +64,8 @@ class vessel:
     
         self.maxThrust = int(shipClass.maxThrust) #max thrust
         self.emptyMass = int(shipClass.emptyMass)
-        self.waterTons = int(shipClass.waterTons)
-        self.fuelTons = int(shipClass.fuelTons)
+        self.waterTons = float(shipClass.waterTons)
+        self.fuelTons = float(shipClass.fuelTons)
         self.mass = self.emptyMass + self.waterTons + self.fuelTons + (self.magazine * self.missileType.mass) #total mass
         self.texture = self.shipClass.texture #sprite png
         self.launchDirection = self.shipClass.launchDirection #direction of missile launch
@@ -124,8 +130,8 @@ class vessel:
     def launchMissile(self):
         if self.isPlayer == True:
             if self.magazine > 0:
-                x = firedMissile(self.missileType, len(activeMissiles)+1, self, self.target, self.fixPoint)
-                playerMissiles.append(x)
+                x = firedMissile(self.missileType, len(activeMissiles)+1, self, self.target, self.fixPoint, True)
+                self.guidedMissiles.append(x)
                 activeMissiles.append(x)
                 self.fixPoint = None
                 self.magazine -= 1
@@ -133,7 +139,9 @@ class vessel:
                 pass
         else:
             x = firedMissile(self.missileType, (len(activeMissiles)+1), self) ##WARNING CHANGE ID FOR AI
+            self.guidedMissiles.append(x)
             activeMissiles.append(x)
+            self.magazine -=1
 
     def blitta(self):
         oldRect = self.texture.get_rect(center=(self.x-displayOffset[0],self.y-displayOffset[1]))
@@ -247,7 +255,7 @@ class guidedMissile:
         self.texture = pygame.image.load(img_path).convert_alpha()
 
 class firedMissile:
-    def __init__(self, type, id, launchVehicle, target, fixPoint = None):
+    def __init__(self, type, id, launchVehicle, target, fixPoint = None, isPlayerMissile = False):
         self.type = type
         self.mass = type.mass
         self.maxThrust = type.maxThrust #maximum thrust coefficient - not actually a thrust force, but an acceleration in pixels per tick
@@ -258,6 +266,7 @@ class firedMissile:
         self.PNparam = type.PNparam
 
         self.id = id #id of individually launched missile
+        self.launchVehicle = launchVehicle
 
         self.commandedThrust = 0.1
         self.x = launchVehicle.x
@@ -268,14 +277,10 @@ class firedMissile:
         self.pointing = launchVehicle.launchDirection
 
     def terminate(self):
-        distX = abs(self.x - self.target.x)
-        distY = abs(self.y - self.target.y)
-        # WARNING fix sqrt of negative
-        if math.sqrt(distX**2-distY**2) < self.warheadYield:
-            self.target.terminate()
-            for missile in activeMissiles:
-                if missile.id == self.id:
-                    activeMissiles.remove(missile)
+        for missile in activeMissiles:
+            if missile.id == self.id:
+                activeMissiles.remove(missile)
+                self.launchVehicle.guidedMissiles.remove(missile)
 
     def update(self):
         for planet in gravObjects:
@@ -283,8 +288,8 @@ class firedMissile:
             dy = planet.y - self.y
             angle = math.atan2(dy, dx)  # Calculate angle between planets
             d = math.sqrt((dx ** 2) + (dy ** 2))  # Calculate distance
-            if d == 0:
-                d = 0.000001  # Prevent division by zero error
+            if d < planet.radius:
+                self.terminate()  # Collision with object
             f = (
                 G * self.mass * planet.mass / (d ** 2)
             )  # Calculate gravitational force
@@ -311,7 +316,7 @@ class firedMissile:
             TGTy = self.fixPoint[1]
             TGTxVel = 0
             TGTyVel = 0
-            if abs(TGTx-self.x)<30 and abs(TGTy-self.y)<30: # Remove fixP if if has been reached
+            if abs(TGTx-self.x)<30 and abs(TGTy-self.y)<30: # Remove fixP if it has been reached
                 self.fixPoint = None
         else:
             TGTx = self.target.x
@@ -358,10 +363,12 @@ class firedMissile:
         gameDisplay.blit(shipImg, newRect)
 
 
-# Todo in main:
 
-# if user clicks n
-#     selectedMissile = n
+class player:
+    def __init__(self):
+        self.selectedFCS = playerShip #ownship by default but can be missiles in flight
+        self.selectedTarget = None
+
 
 
 
@@ -404,8 +411,9 @@ def draw():
         ' HDGRAW: ' + str(round(playerShip.pointing, 2)) +
         ' TGT: ' + str(playerShip.target) + 
         ' MousePos: ' + str(mx + displayOffset[0]) + ' ' + str(my+displayOffset[1]) + 
-        ' playerpos: ' + str(playerShip.x) + ' ' + str(playerShip.y)
-    )
+        ' playerpos: ' + str(playerShip.x) + ' ' + str(playerShip.y) +
+        ' selected missile: ' + str(playerShip)
+        )
     textsurface = myfont.render(telemetry, False, (255, 0, 0))
     gameDisplay.blit(textsurface,(display_width * 0.18, display_height * 0.2))
 
@@ -450,8 +458,9 @@ def keypresses():
                 if ship.x-20 < trueX < ship.x+20 and ship.y-20 < trueY < ship.y+20:
                     playerShip.target = ship
                     isShipTarget = True
+                    
             if isShipTarget == False:
-                playerShip.fixPoint = [trueX, trueY]
+                player.selectedFCS.fixPoint = [trueX, trueY]
         
         # Handle instantaneous keypresses
         if event.type == pygame.KEYDOWN:
